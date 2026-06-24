@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LiveChat Dashboard</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Segoe UI',sans-serif; background:#f0f2f5; display:flex; height:100vh; overflow:hidden; }
+
+/* Sidebar */
+.sidebar {
+  width: 260px; min-width: 260px;
+  background: #1a1a2e;
+  display: flex; flex-direction: column;
+  color: #fff;
+}
+.sidebar-header {
+  padding: 20px;
+  background: #16213e;
+  display: flex; align-items: center; gap: 10px;
+}
+.sidebar-header .logo { font-size: 22px; font-weight: 700; }
+.sidebar-header .agent-name { font-size: 12px; color: #aaa; }
+.nav-item {
+  padding: 14px 20px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; color: #ccc;
+  transition: background 0.2s;
+  border-left: 3px solid transparent;
+}
+.nav-item:hover, .nav-item.active {
+  background: #0f3460;
+  color: #fff;
+  border-left-color: #667eea;
+}
+.nav-item .icon { font-size: 18px; width: 24px; }
+.badge {
+  background: #e53e3e; color: #fff;
+  border-radius: 10px; padding: 2px 7px;
+  font-size: 11px; margin-left: auto;
+}
+.sidebar-footer {
+  margin-top: auto;
+  padding: 16px 20px;
+  border-top: 1px solid #2d2d4e;
+}
+.logout-btn {
+  width: 100%; padding: 10px;
+  background: #e53e3e; color: #fff;
+  border: none; border-radius: 8px;
+  cursor: pointer; font-size: 14px;
+}
+
+/* Main Content */
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Topbar */
+.topbar {
+  background: #fff;
+  padding: 14px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  z-index: 10;
+}
+.topbar h2 { font-size: 18px; color: #1a1a2e; }
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+.bell-btn {
+  position: relative; background: none; border: none;
+  font-size: 22px; cursor: pointer; padding: 4px;
+}
+.bell-badge {
+  position: absolute; top: -2px; right: -2px;
+  background: #e53e3e; color: #fff;
+  border-radius: 50%; width: 16px; height: 16px;
+  font-size: 10px; display: flex; align-items: center; justify-content: center;
+  display: none;
+}
+.online-dot { width: 10px; height: 10px; background: #48bb78; border-radius: 50%; }
+
+/* Tabs Content */
+.content { flex: 1; overflow: hidden; display: flex; }
+.tab-content { display: none; width: 100%; }
+.tab-content.active { display: flex; }
+
+/* ── Conversations Tab ── */
+.conv-list {
+  width: 320px; min-width: 320px;
+  background: #fff;
+  border-right: 1px solid #eee;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.conv-list-header {
+  padding: 16px;
+  border-bottom: 1px solid #eee;
+  font-weight: 600; color: #1a1a2e;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.filter-tabs { display: flex; gap: 4px; }
+.filter-tab {
+  padding: 4px 10px; border-radius: 20px;
+  font-size: 12px; cursor: pointer;
+  background: #f0f2f5; color: #666;
+  border: none;
+}
+.filter-tab.active { background: #667eea; color: #fff; }
+.conv-items { overflow-y: auto; flex: 1; }
+.conv-item {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f5f5f5;
+  cursor: pointer; transition: background 0.15s;
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.conv-item:hover { background: #f8f9ff; }
+.conv-item.active { background: #eef0ff; border-left: 3px solid #667eea; }
+.conv-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 600; font-size: 16px;
+  flex-shrink: 0; position: relative;
+}
+.conv-avatar .online-indicator {
+  position: absolute; bottom: 1px; right: 1px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #48bb78; border: 2px solid #fff;
+}
+.conv-info { flex: 1; min-width: 0; }
+.conv-name { font-weight: 600; font-size: 14px; color: #1a1a2e; }
+.conv-site { font-size: 11px; color: #888; margin-top: 1px; }
+.conv-preview { font-size: 13px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
+.conv-meta { text-align: right; flex-shrink: 0; }
+.conv-time { font-size: 11px; color: #aaa; }
+.unread-dot { width: 8px; height: 8px; background: #667eea; border-radius: 50%; margin: 4px 0 0 auto; }
+
+/* Chat Panel */
+.chat-panel {
+  flex: 1; display: flex; flex-direction: column;
+  background: #f8f9ff;
+}
+.chat-header {
+  background: #fff; padding: 14px 20px;
+  border-bottom: 1px solid #eee;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.chat-visitor-info .name { font-weight: 600; font-size: 16px; }
+.chat-visitor-info .url { font-size: 12px; color: #888; }
+.chat-actions { display: flex; gap: 8px; }
+.action-btn {
+  padding: 6px 14px; border-radius: 6px;
+  border: 1px solid #ddd; background: #fff;
+  cursor: pointer; font-size: 13px; transition: all 0.2s;
+}
+.action-btn:hover { background: #f0f2f5; }
+.action-btn.primary { background: #667eea; color: #fff; border-color: #667eea; }
+.messages-area {
+  flex: 1; overflow-y: auto; padding: 20px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.msg-bubble {
+  max-width: 70%; padding: 10px 14px;
+  border-radius: 14px; font-size: 14px; line-height: 1.5;
+  position: relative;
+}
+.msg-bubble.visitor {
+  background: #fff; color: #333;
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  align-self: flex-start;
+}
+.msg-bubble.agent {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+  align-self: flex-end;
+}
+.msg-meta { font-size: 11px; opacity: 0.7; margin-top: 4px; }
+.msg-sender { font-size: 11px; font-weight: 600; margin-bottom: 2px; color: #888; }
+.msg-group { display: flex; flex-direction: column; }
+.msg-group.agent-group { align-items: flex-end; }
+.msg-group.visitor-group { align-items: flex-start; }
+.chat-input-area {
+  background: #fff; padding: 16px 20px;
+  border-top: 1px solid #eee;
+  display: flex; gap: 10px; align-items: flex-end;
+}
+.chat-input {
+  flex: 1; padding: 12px 16px;
+  border: 2px solid #eee; border-radius: 10px;
+  font-size: 14px; resize: none; outline: none;
+  font-family: inherit; max-height: 120px;
+  transition: border 0.2s;
+}
+.chat-input:focus { border-color: #667eea; }
+.send-btn {
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff; border: none; border-radius: 10px;
+  cursor: pointer; font-size: 20px;
+  transition: opacity 0.2s;
+}
+.send-btn:hover { opacity: 0.9; }
+.empty-chat {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 10px; color: #aaa;
+}
+.empty-chat .icon { font-size: 48px; }
+
+/* ── Visitors Tab ── */
+.visitors-tab {
+  padding: 24px; width: 100%; overflow-y: auto;
+}
+.visitors-tab h3 { font-size: 18px; color: #1a1a2e; margin-bottom: 16px; }
+.visitors-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.visitor-card {
+  background: #fff; border-radius: 12px;
+  padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;
+}
+.visitor-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.1); }
+.visitor-card .v-name { font-weight: 600; font-size: 15px; color: #1a1a2e; }
+.visitor-card .v-site { font-size: 12px; color: #667eea; margin-top: 2px; }
+.visitor-card .v-url { font-size: 12px; color: #888; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.visitor-card .v-time { font-size: 11px; color: #aaa; margin-top: 8px; }
+.online-badge { display: inline-flex; align-items: center; gap: 4px; background: #f0fff4; color: #48bb78; font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
+
+/* ── Websites Tab ── */
+.websites-tab {
+  padding: 24px; width: 100%; overflow-y: auto;
+}
+.websites-tab h3 { font-size: 18px; color: #1a1a2e; margin-bottom: 16px; }
+.add-site-form {
+  background: #fff; border-radius: 12px;
+  padding: 20px; margin-bottom: 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;
+}
+.form-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 160px; }
+.form-field label { font-size: 12px; font-weight: 600; color: #555; }
+.form-field input {
+  padding: 10px 14px; border: 2px solid #eee;
+  border-radius: 8px; font-size: 14px; outline: none;
+}
+.form-field input:focus { border-color: #667eea; }
+.add-btn {
+  padding: 10px 20px; background: #667eea;
+  color: #fff; border: none; border-radius: 8px;
+  cursor: pointer; font-size: 14px; font-weight: 600;
+  white-space: nowrap;
+}
+.sites-list { display: flex; flex-direction: column; gap: 12px; }
+.site-card {
+  background: #fff; border-radius: 12px;
+  padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.site-card .site-name { font-weight: 700; font-size: 16px; color: #1a1a2e; }
+.site-card .site-domain { color: #667eea; font-size: 14px; margin-top: 2px; }
+.site-script {
+  margin-top: 14px; background: #1a1a2e;
+  border-radius: 8px; padding: 14px;
+  font-family: monospace; font-size: 13px; color: #48bb78;
+  position: relative; overflow-x: auto; white-space: pre-wrap;
+  word-break: break-all;
+}
+.copy-btn {
+  position: absolute; top: 8px; right: 8px;
+  background: #667eea; color: #fff;
+  border: none; border-radius: 6px;
+  padding: 4px 10px; font-size: 12px; cursor: pointer;
+}
+.delete-site-btn {
+  margin-top: 10px; padding: 6px 14px;
+  background: #fff; color: #e53e3e;
+  border: 1px solid #e53e3e; border-radius: 6px;
+  cursor: pointer; font-size: 13px;
+}
+
+/* ── Agents Tab ── */
+.agents-tab { padding: 24px; width: 100%; overflow-y: auto; }
+.agents-tab h3 { font-size: 18px; color: #1a1a2e; margin-bottom: 16px; }
+.agents-list { display: flex; flex-direction: column; gap: 10px; }
+.agent-card {
+  background: #fff; border-radius: 10px;
+  padding: 16px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  display: flex; align-items: center; gap: 14px;
+}
+.agent-avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 700; font-size: 16px;
+}
+.agent-info .agent-name { font-weight: 600; color: #1a1a2e; }
+.agent-info .agent-email { font-size: 13px; color: #888; }
+.role-badge { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-left: auto; }
+.role-badge.admin { background: #fef3c7; color: #d69e2e; }
+.role-badge.agent { background: #e8f4fd; color: #667eea; }
+
+/* Notification toast */
+.toast {
+  position: fixed; top: 20px; right: 20px;
+  background: #1a1a2e; color: #fff;
+  padding: 14px 18px; border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  z-index: 9999; max-width: 320px;
+  transform: translateX(400px); transition: transform 0.3s;
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.toast.show { transform: translateX(0); }
+.toast .t-icon { font-size: 22px; }
+.toast .t-title { font-weight: 600; font-size: 14px; }
+.toast .t-msg { font-size: 12px; color: #ccc; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="sidebar-header">
+    <div>
+      <div class="logo">💬 LiveChat</div>
+      <div class="agent-name" id="agentNameDisplay">Loading...</div>
+    </div>
+  </div>
+  <div class="nav-item active" onclick="showTab('conversations', this)">
+    <span class="icon">💬</span> Conversations
+    <span class="badge" id="convBadge" style="display:none">0</span>
+  </div>
+  <div class="nav-item" onclick="showTab('visitors', this)">
+    <span class="icon">👥</span> Online Visitors
+    <span class="badge" id="visitorBadge" style="display:none">0</span>
+  </div>
+  <div class="nav-item" onclick="showTab('websites', this)">
+    <span class="icon">🌐</span> Websites
+  </div>
+  <div class="nav-item" onclick="showTab('agents', this)">
+    <span class="icon">👤</span> Agents
+  </div>
+  <div class="sidebar-footer">
+    <button class="logout-btn" onclick="logout()">🚪 Logout</button>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+  <!-- Topbar -->
+  <div class="topbar">
+    <h2 id="tabTitle">Conversations</h2>
+    <div class="topbar-right">
+      <button class="bell-btn" id="bellBtn" onclick="clearNotifications()">
+        🔔
+        <span class="bell-badge" id="bellBadge">0</span>
+      </button>
+      <div class="online-dot"></div>
+      <span style="font-size:13px;color:#666" id="topAgentName"></span>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+
+    <!-- Conversations Tab -->
+    <div class="tab-content active" id="tab-conversations">
+      <div class="conv-list">
+        <div class="conv-list-header">
+          <span>Chats</span>
+          <div class="filter-tabs">
+            <button class="filter-tab active" onclick="filterConvs('all', this)">All</button>
+            <button class="filter-tab" onclick="filterConvs('open', this)">Open</button>
+            <button class="filter-tab" onclick="filterConvs('closed', this)">Closed</button>
+          </div>
+        </div>
+        <div class="conv-items" id="convList">
+          <div style="padding:20px;color:#aaa;text-align:center;font-size:14px">No conversations yet</div>
+        </div>
+      </div>
+      <div class="chat-panel" id="chatPanel">
+        <div class="empty-chat">
+          <div class="icon">💬</div>
+          <div>Select a conversation to start chatting</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Visitors Tab -->
+    <div class="tab-content" id="tab-visitors">
+      <div class="visitors-tab">
+        <h3>🟢 Online Visitors</h3>
+        <div class="visitors-grid" id="visitorGrid">
+          <div style="color:#aaa;font-size:14px">No visitors online right now</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Websites Tab -->
+    <div class="tab-content" id="tab-websites">
+      <div class="websites-tab">
+        <h3>🌐 Manage Websites</h3>
+        <div class="add-site-form">
+          <div class="form-field">
+            <label>Website Name</label>
+            <input type="text" id="siteName" placeholder="My Website">
+          </div>
+          <div class="form-field">
+            <label>Domain</label>
+            <input type="text" id="siteDomain" placeholder="example.com">
+          </div>
+          <button class="add-btn" onclick="addWebsite()">+ Add Website</button>
+        </div>
+        <div class="sites-list" id="sitesList"></div>
+      </div>
+    </div>
+
+    <!-- Agents Tab -->
+    <div class="tab-content" id="tab-agents">
+      <div class="agents-tab">
+        <h3>👥 Agents</h3>
+        <div class="add-site-form" style="margin-bottom:20px">
+          <div class="form-field">
+            <label>Name</label>
+            <input type="text" id="agentName" placeholder="John Doe">
+          </div>
+          <div class="form-field">
+            <label>Email</label>
+            <input type="email" id="agentEmail" placeholder="john@example.com">
+          </div>
+          <div class="form-field">
+            <label>Password</label>
+            <input type="password" id="agentPass" placeholder="••••••••">
+          </div>
+          <button class="add-btn" onclick="addAgent()">+ Add Agent</button>
+        </div>
+        <div class="agents-list" id="agentsList"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <div class="t-icon">🔔</div>
+  <div>
+    <div class="t-title" id="toastTitle"></div>
+    <div class="t-msg" id="toastMsg"></div>
+  </div>
+</div>
+
+<script>
+const token = localStorage.getItem('lc_token');
+const agent = JSON.parse(localStorage.getItem('lc_agent') || '{}');
+if (!token) window.location.href = '/';
+
+document.getElementById('agentNameDisplay').textContent = agent.name || 'Agent';
+document.getElementById('topAgentName').textContent = agent.name || '';
+
+let socket;
+let activeConvId = null;
+let conversations = [];
+let onlineVisitors = [];
+let notifCount = 0;
+let convFilter = 'all';
+const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA...'); // bell sound placeholder
+
+// ─── Socket ───────────────────────────────────────────────
+function initSocket() {
+  socket = io();
+  socket.emit('agent:join', { token });
+
+  socket.on('visitor:new', (data) => {
+    showToast('🙋 New Visitor!', `${data.websiteName} — ${data.pageUrl}`);
+    addNotif();
+    loadConversations();
+    loadVisitors();
+  });
+
+  socket.on('message:new', (data) => {
+    if (data.senderType === 'visitor') {
+      showToast('💬 New Message', data.message.substring(0, 60));
+      addNotif();
+    }
+    if (data.conversationId === activeConvId) {
+      appendMessage(data);
+    }
+    updateConvPreview(data);
+  });
+
+  socket.on('visitor:offline', (data) => {
+    loadVisitors();
+    markVisitorOffline(data.visitorId);
+  });
+
+  socket.on('visitor:updated', () => loadConversations());
+}
+
+// ─── Tab switching ─────────────────────────────────────────
+function showTab(tab, el) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  el.classList.add('active');
+  const titles = { conversations:'Conversations', visitors:'Online Visitors', websites:'Websites', agents:'Agents' };
+  document.getElementById('tabTitle').textContent = titles[tab];
+  if (tab === 'visitors') loadVisitors();
+  if (tab === 'websites') loadWebsites();
+  if (tab === 'agents') loadAgents();
+}
+
+// ─── Notifications ─────────────────────────────────────────
+function addNotif() {
+  notifCount++;
+  document.getElementById('bellBadge').textContent = notifCount;
+  document.getElementById('bellBadge').style.display = 'flex';
+  try { playBell(); } catch(e) {}
+}
+function clearNotifications() {
+  notifCount = 0;
+  document.getElementById('bellBadge').style.display = 'none';
+}
+function playBell() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain); gain.connect(ctx.destination);
+  osc.frequency.setValueAtTime(880, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.3);
+  gain.gain.setValueAtTime(0.3, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+  osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
+}
+
+function showToast(title, msg) {
+  document.getElementById('toastTitle').textContent = title;
+  document.getElementById('toastMsg').textContent = msg;
+  const toast = document.getElementById('toast');
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
+// ─── Conversations ─────────────────────────────────────────
+async function loadConversations() {
+  const res = await fetch('/api/conversations', { headers: { Authorization: 'Bearer ' + token } });
+  conversations = await res.json();
+  renderConvList();
+}
+
+function renderConvList() {
+  const list = document.getElementById('convList');
+  let filtered = conversations;
+  if (convFilter !== 'all') filtered = conversations.filter(c => c.status === convFilter);
+
+  const open = filtered.filter(c => c.status === 'open').length;
+  document.getElementById('convBadge').textContent = open;
+  document.getElementById('convBadge').style.display = open > 0 ? 'inline-flex' : 'none';
+
+  if (!filtered.length) {
+    list.innerHTML = '<div style="padding:20px;color:#aaa;text-align:center;font-size:14px">No conversations</div>';
+    return;
+  }
+
+  list.innerHTML = filtered.map(c => `
+    <div class="conv-item ${c.id === activeConvId ? 'active' : ''}" onclick="openConversation('${c.id}')">
+      <div class="conv-avatar">
+        ${(c.visitor_name || 'V')[0].toUpperCase()}
+        ${c.is_online ? '<div class="online-indicator"></div>' : ''}
+      </div>
+      <div class="conv-info">
+        <div class="conv-name">${c.visitor_name || 'Visitor'}</div>
+        <div class="conv-site">🌐 ${c.website_name || ''}</div>
+        <div class="conv-preview">${c.last_message || 'No messages yet'}</div>
+      </div>
+      <div class="conv-meta">
+        <div class="conv-time">${formatTime(c.last_message_time || c.created_at)}</div>
+        ${c.status === 'open' ? '<div class="unread-dot"></div>' : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function filterConvs(filter, el) {
+  convFilter = filter;
+  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderConvList();
+}
+
+async function openConversation(convId) {
+  activeConvId = convId;
+  renderConvList();
+  const conv = conversations.find(c => c.id === convId);
+  if (!conv) return;
+
+  const panel = document.getElementById('chatPanel');
+  panel.innerHTML = `
+    <div class="chat-header">
+      <div class="chat-visitor-info">
+        <div class="name">
+          ${conv.is_online ? '<span style="color:#48bb78">●</span>' : '<span style="color:#ccc">●</span>'}
+          ${conv.visitor_name || 'Visitor'}
+          ${conv.visitor_email ? `<span style="font-size:12px;color:#888;margin-left:6px">${conv.visitor_email}</span>` : ''}
+        </div>
+        <div class="url">🔗 ${conv.page_url || ''}</div>
+      </div>
+      <div class="chat-actions">
+        ${conv.status === 'open' ? `<button class="action-btn" onclick="closeConv('${convId}')">✓ Close</button>` : '<span style="color:#48bb78;font-size:13px">✓ Closed</span>'}
+      </div>
+    </div>
+    <div class="messages-area" id="messagesArea">
+      <div style="text-align:center;color:#aaa;font-size:13px">Loading messages...</div>
+    </div>
+    ${conv.status === 'open' ? `
+    <div class="chat-input-area">
+      <textarea class="chat-input" id="chatInput" placeholder="Type a message..." rows="1"
+        onkeydown="handleEnter(event)"></textarea>
+      <button class="send-btn" onclick="sendMessage()">➤</button>
+    </div>` : '<div style="padding:12px;text-align:center;color:#aaa;font-size:13px;background:#fff;border-top:1px solid #eee">Conversation closed</div>'}
+  `;
+
+  const msgs = await fetch(`/api/conversations/${convId}/messages`, { headers: { Authorization: 'Bearer ' + token } });
+  const messages = await msgs.json();
+  const area = document.getElementById('messagesArea');
+
+  if (!messages.length) {
+    area.innerHTML = '<div style="text-align:center;color:#aaa;font-size:13px">No messages yet. Say hello!</div>';
+  } else {
+    area.innerHTML = '';
+    messages.forEach(m => appendMessage({
+      senderType: m.sender_type,
+      senderName: m.sender_name,
+      message: m.message,
+      time: m.created_at
+    }));
+  }
+  area.scrollTop = area.scrollHeight;
+}
+
+function appendMessage(data) {
+  const area = document.getElementById('messagesArea');
+  if (!area) return;
+  const isAgent = data.senderType === 'agent';
+  const div = document.createElement('div');
+  div.className = `msg-group ${isAgent ? 'agent-group' : 'visitor-group'}`;
+  div.innerHTML = `
+    ${!isAgent ? `<div class="msg-sender">${data.senderName || 'Visitor'}</div>` : ''}
+    <div class="msg-bubble ${isAgent ? 'agent' : 'visitor'}">
+      ${escHtml(data.message)}
+      <div class="msg-meta">${formatTime(data.time)}</div>
+    </div>
+  `;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+}
+
+function updateConvPreview(data) {
+  const conv = conversations.find(c => c.id === data.conversationId);
+  if (conv) { conv.last_message = data.message; conv.last_message_time = data.time; }
+  renderConvList();
+}
+
+function sendMessage() {
+  const input = document.getElementById('chatInput');
+  if (!input || !input.value.trim()) return;
+  socket.emit('agent:message', { conversationId: activeConvId, message: input.value.trim() });
+  input.value = '';
+  input.style.height = 'auto';
+}
+
+function handleEnter(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+async function closeConv(convId) {
+  await fetch(`/api/conversations/${convId}/close`, { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+  loadConversations();
+  document.getElementById('chatPanel').innerHTML = '<div class="empty-chat"><div class="icon">✓</div><div>Conversation closed</div></div>';
+  activeConvId = null;
+}
+
+function markVisitorOffline(visitorId) {
+  const conv = conversations.find(c => c.visitor_id === visitorId);
+  if (conv) { conv.is_online = 0; renderConvList(); }
+}
+
+// ─── Visitors ──────────────────────────────────────────────
+async function loadVisitors() {
+  const res = await fetch('/api/visitors/online', { headers: { Authorization: 'Bearer ' + token } });
+  onlineVisitors = await res.json();
+  const badge = document.getElementById('visitorBadge');
+  badge.textContent = onlineVisitors.length;
+  badge.style.display = onlineVisitors.length ? 'inline-flex' : 'none';
+
+  const grid = document.getElementById('visitorGrid');
+  if (!onlineVisitors.length) {
+    grid.innerHTML = '<div style="color:#aaa;font-size:14px">No visitors online right now</div>';
+    return;
+  }
+  grid.innerHTML = onlineVisitors.map(v => `
+    <div class="visitor-card" onclick="openVisitorConv('${v.id}')">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span class="online-badge">● Online</span>
+        <span style="font-size:11px;color:#aaa">${v.website_name}</span>
+      </div>
+      <div class="v-name">${v.name || 'Visitor'}</div>
+      ${v.email ? `<div style="font-size:12px;color:#888">${v.email}</div>` : ''}
+      <div class="v-url">🔗 ${v.page_url || ''}</div>
+      <div class="v-time">Since ${formatTime(v.created_at)}</div>
+    </div>
+  `).join('');
+}
+
+function openVisitorConv(visitorId) {
+  const conv = conversations.find(c => c.visitor_id === visitorId);
+  if (conv) {
+    showTab('conversations', document.querySelector('.nav-item'));
+    document.querySelectorAll('.nav-item')[0].classList.add('active');
+    document.querySelectorAll('.nav-item')[1].classList.remove('active');
+    openConversation(conv.id);
+  }
+}
+
+// ─── Websites ──────────────────────────────────────────────
+async function loadWebsites() {
+  const res = await fetch('/api/websites', { headers: { Authorization: 'Bearer ' + token } });
+  const sites = await res.json();
+  const serverUrl = window.location.origin;
+  const list = document.getElementById('sitesList');
+  if (!sites.length) { list.innerHTML = '<div style="color:#aaa;font-size:14px">No websites added yet</div>'; return; }
+  list.innerHTML = sites.map(s => {
+    const script = `<script>\n  window.LiveChatConfig = { apiKey: "${s.api_key}" };\n<\/script>\n<script src="${serverUrl}/chat.js"><\/script>`;
+    return `
+    <div class="site-card">
+      <div class="site-name">🌐 ${s.name}</div>
+      <div class="site-domain">${s.domain}</div>
+      <div class="site-script" id="script-${s.id}"><button class="copy-btn" onclick="copyScript('${s.id}')">Copy</button>${escHtml(script)}</div>
+      <button class="delete-site-btn" onclick="deleteSite('${s.id}')">🗑 Delete</button>
+    </div>`;
+  }).join('');
+}
+
+function copyScript(siteId) {
+  const el = document.getElementById('script-' + siteId);
+  const text = el.textContent.replace('Copy', '').trim();
+  navigator.clipboard.writeText(text);
+  showToast('✅ Copied!', 'Paste in your website <head> tag');
+}
+
+async function addWebsite() {
+  const name = document.getElementById('siteName').value.trim();
+  const domain = document.getElementById('siteDomain').value.trim();
+  if (!name || !domain) return alert('Enter name and domain');
+  await fetch('/api/websites', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify({ name, domain })
+  });
+  document.getElementById('siteName').value = '';
+  document.getElementById('siteDomain').value = '';
+  loadWebsites();
+}
+
+async function deleteSite(id) {
+  if (!confirm('Delete this website?')) return;
+  await fetch('/api/websites/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+  loadWebsites();
+}
+
+// ─── Agents ────────────────────────────────────────────────
+async function loadAgents() {
+  const res = await fetch('/api/agents', { headers: { Authorization: 'Bearer ' + token } });
+  const agents = await res.json();
+  document.getElementById('agentsList').innerHTML = agents.map(a => `
+    <div class="agent-card">
+      <div class="agent-avatar">${a.name[0].toUpperCase()}</div>
+      <div class="agent-info">
+        <div class="agent-name">${a.name}</div>
+        <div class="agent-email">${a.email}</div>
+      </div>
+      <span class="role-badge ${a.role}">${a.role}</span>
+    </div>
+  `).join('');
+}
+
+async function addAgent() {
+  const name = document.getElementById('agentName').value.trim();
+  const email = document.getElementById('agentEmail').value.trim();
+  const password = document.getElementById('agentPass').value;
+  if (!name || !email || !password) return alert('All fields required');
+  const res = await fetch('/api/agents', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify({ name, email, password })
+  });
+  if (res.ok) { document.getElementById('agentName').value = ''; document.getElementById('agentEmail').value = ''; document.getElementById('agentPass').value = ''; loadAgents(); }
+  else { const d = await res.json(); alert(d.error); }
+}
+
+// ─── Helpers ───────────────────────────────────────────────
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const now = new Date();
+  const diff = now - d;
+  if (diff < 60000) return 'Just now';
+  if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+  if (diff < 86400000) return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  return d.toLocaleDateString();
+}
+function escHtml(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function logout() { localStorage.clear(); window.location.href = '/'; }
+
+// ─── Init ──────────────────────────────────────────────────
+initSocket();
+loadConversations();
+setInterval(loadConversations, 30000);
+</script>
+</body>
+</html>
